@@ -105,4 +105,94 @@ for url in brief_links:
 raw_panel = pd.concat(dfs, ignore_index=True)
 raw_panel.to_csv('raw_employment.csv', index=False)
 
+# stage 2 Clean the data
+def clean_employment(s):
+    if pd.isna(s) or s == '':
+        return np.nan
+    # Strip tildes and commas
+    s = s.replace('~', '').replace(',', '')
+    # Remove 'jobs' if present
+    s = s.replace('jobs', '').strip()
+    # Check for suffixes
+    if 'thousand' in s.lower():
+        s = s.lower().replace('thousand', '').strip()
+        return int(float(s) * 1000)
+    elif 'k' in s.lower():
+        s = s.lower().replace('k', '').strip()
+        return int(float(s) * 1000)
+    else:
+        return int(float(s))
+
+# Apply cleaning to year columns
+year_cols = [str(y) for y in range(2018, 2026)]
+
+# Ensure region_raw is clean (strip whitespace)
+raw_panel['region_raw'] = raw_panel['region_raw'].str.strip()
+
+# Save cleaned data
+raw_panel.to_csv('clean_employment.csv', index=False)# GitHub Copilot Prompt:
+# Map every raw scraped county name to a clean canonical "County Name, State"
+# string, handling abbreviations like "Cnty.", slashes "/OH", hyphens
+# "- Ohio", and parentheses "(PA)". Define TREATED_COUNTIES as the four
+# Ohio counties that received the 2022 AI grant.
+TREATED_COUNTIES = {
+    "Lucas County, Ohio",
+    "Stark County, Ohio",
+    "Mahoning County, Ohio",
+    "Trumbull County, Ohio",
+}
+COUNTY_MAP = {
+   "Lucas Cnty, Ohio":           "Lucas County, Ohio",
+    "Stark County / OH":          "Stark County, Ohio",
+    "Mahoning County - Ohio":     "Mahoning County, Ohio",
+    "Trumbull Cnty., OH":         "Trumbull County, Ohio",
+    "Erie County (PA)":           "Erie County, Pennsylvania",
+    "Mercer Cnty, Pennsylvania":  "Mercer County, Pennsylvania",
+    "Lawrence County - PA":       "Lawrence County, Pennsylvania",
+    "Beaver Cnty., PA":           "Beaver County, Pennsylvania",
+}
+year_cols = [str(y) for y in range(2018, 2026)]
+# GitHub Copilot Prompt:
+# Melt the raw wide DataFrame from wide to long format so each row is one
+# county-year observation. Apply clean_employment() to the value column,
+# drop NaN rows, cast employment to int, map raw region names through
+# COUNTY_MAP, then add TREATED, POST_POLICY, and did interaction dummies.
+# Deduplicate on [region, year], sort, and return the clean panel.
+
+year_cols_present = [c for c in year_cols if c in raw_panel.columns]
+
+long_panel = raw_panel[["region_raw"] + year_cols_present].melt(
+    id_vars="region_raw",
+    value_vars=year_cols_present,
+    var_name="year",
+    value_name="employment_raw"
+)
+
+long_panel["employment"] = long_panel["employment_raw"].apply(clean_employment)
+long_panel = long_panel.dropna(subset=["employment"]).copy()
+long_panel["employment"] = long_panel["employment"].astype(int)
+long_panel["year"] = long_panel["year"].astype(int)
+
+long_panel["region"] = long_panel["region_raw"].str.strip().map(COUNTY_MAP)
+long_panel["TREATED"] = long_panel["region"].isin(TREATED_COUNTIES).astype(int)
+long_panel["POST_POLICY"] = (long_panel["year"] >= POLICY_YEAR).astype(int)
+long_panel["did"] = long_panel["TREATED"] * long_panel["POST_POLICY"]
+
+long_panel = (
+    long_panel[["region", "year", "employment", "TREATED", "POST_POLICY", "did"]]
+    .drop_duplicates(subset=["region", "year"])
+    .sort_values(["region", "year"])
+    .reset_index(drop=True)
+)
+
+long_panel.to_csv("clean_panel.csv", index=False)
+
+assert len(long_panel) == 64, f"Expected 64 rows, got {len(long_panel)}"
+assert long_panel["TREATED"].sum() == 32, "Expected 32 treated rows (4 counties × 8 years)"
+assert long_panel["did"].sum() == 16, "Expected 16 DiD rows (4 counties × 4 post years)"
+assert long_panel["employment"].isna().sum() == 0, "Nulls in employment"
+print("Clean sanity checks passed.")
+print(long_panel.to_string())
+
+
 
