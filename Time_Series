@@ -1,0 +1,108 @@
+# =============================================================================
+# BANA 290 – Assignment 3: Rust Belt AI Upskilling Subsidy (DiD Analysis)
+# Source: https://bana290-assignment3.netlify.app
+# =============================================================================
+# Panel:   8 Ohio/Pennsylvania manufacturing counties, 2018–2025
+# Policy:  2022 Ohio AI & Robotics Upskilling Grant
+# Design:  Two-way fixed-effects Difference-in-Differences
+# =============================================================================
+ 
+import re
+import time
+import requests
+from urllib.parse import urljoin
+import numpy as np
+import pandas as pd
+from bs4 import BeautifulSoup
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import statsmodels.formula.api as smf
+ 
+BASE_URL     = "https://bana290-assignment3.netlify.app"
+POLICY_YEAR  = 2022
+PLACEBO_YEAR = 2020   # fake treatment year two years before the real policy
+
+#stage 1 Scrape the data
+# GitHub Copilot Prompt:
+# Fetch the main index page at BASE_URL with requests, parse it with
+# BeautifulSoup, and return a deduplicated list of absolute URLs for every
+# <a> tag whose href contains '/briefs/'. Prepend BASE_URL to relative hrefs.
+response = requests.get(BASE_URL)
+response.raise_for_status()
+soup = BeautifulSoup(response.text, "html.parser")
+
+brief_links = []
+for a in soup.find_all("a", href=True):
+    href = a["href"]
+    if "/briefs/" in href:
+        brief_links.append(urljoin(BASE_URL, href))
+
+brief_links = list(dict.fromkeys(brief_links))
+
+# GitHub Copilot Prompt:
+# Write a function that takes a brief URL, fetches the page, finds the
+# employment <table>, extracts year columns (2018-2025) and the bold county
+# name from each REGION cell using BeautifulSoup, and returns a tidy
+# DataFrame with columns: region_raw, 2018..2025, source_url.
+def scrape_brief(url):
+    response = requests.get(url)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+    
+    # Find the employment table (assuming it's the table containing employment data)
+    table = soup.find('table')
+    if not table:
+        return pd.DataFrame()
+    
+    all_rows = table.find_all('tr')
+    
+    # FIX 1: Row 0 has empty <th> cells — the real column names are in row 1.
+    # Scan for whichever row contains "REGION" to be safe.
+    header_idx = None
+    for i, tr in enumerate(all_rows):
+        cells_text = [td.get_text(strip=True) for td in tr.find_all(['th', 'td'])]
+        if 'REGION' in cells_text:
+            headers = cells_text
+            header_idx = i
+            break
+    
+    if header_idx is None:
+        return pd.DataFrame()
+    
+    data = []
+    # FIX 3: Data rows start after the header row, not after row 0.
+    for row in all_rows[header_idx + 1:]:
+        cells = row.find_all('td')
+        if len(cells) < 2:
+            continue
+        
+        # FIX 2: County names use <strong>, not <b>.
+        region_cell = cells[0]
+        bold = region_cell.find('strong') or region_cell.find('b')
+        region_raw = bold.get_text(strip=True) if bold else region_cell.get_text(strip=True)
+        
+        row_data = {'region_raw': region_raw, 'source_url': url}
+        
+        for header, cell in zip(headers[1:], cells[1:]):
+            if header.isdigit() and 2018 <= int(header) <= 2025:
+                row_data[header] = cell.get_text(strip=True)
+        
+        data.append(row_data)
+    
+    return pd.DataFrame(data)
+# GitHub Copilot Prompt:
+# Loop over brief_links, call scrape_brief() on each URL, collect non-empty
+# DataFrames in a list, concatenate into one raw panel, and save to
+# raw_employment.csv.
+dfs = []
+for url in brief_links:
+    df = scrape_brief(url)
+    if not df.empty:
+        dfs.append(df)
+
+raw_panel = pd.concat(dfs, ignore_index=True)
+raw_panel.to_csv('raw_employment.csv', index=False)
+
+
