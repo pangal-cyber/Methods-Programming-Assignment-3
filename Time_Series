@@ -307,4 +307,17 @@ print(f"  p-value         : {pval:.4f}  {sig}")
 print(f"  95% CI          : [{ci_lo:,.1f}, {ci_hi:,.1f}]")
 
 
-
+#4: Interpretation
+# The two-way fixed-effects DiD regression indicates that treated Ohio counties experienced approximately 4,000 more manufacturing jobs on average after the 2022 AI grant than would have been expected based on control-region trends. 
+# This represents a roughly 13.4\% confidence interval of approximately 3,059 to 4,942 jobs, providing strong evidence that the post-policy employment increase was significantly greater in treated Ohio counties than in comparable Pennsylvania counties.
+# The empirical evidence supporting the parallel trends assumption is strong. The pre-treatment slope differential is effectively zero, with an interaction coefficient of approximately –0.6 and a p-value close to 1.000, which means there is no detectable 
+# difference in pre-policy employment trends between treated and control counties. 
+# The placebo DiD estimate of approximately –3.25 jobs also has a p-value near 0.999, further supporting the absence of anticipatory effects before the policy began. 
+# Together, these results strengthen the case that the estimated treatment effect can be interpreted as causal rather than as a reflection of pre-existing differences between Ohio and Pennsylvania counties.
+#The positive aggregate employment effect is consistent with the grant’s goal of expanding manufacturing capacity through AI and robotics training. However, the net employment gain likely combines two distinct labor-market forces. 
+# On the job-creation side, the subsidy may have increased demand for AI-adjacent roles, such as robotics technicians, 
+# precision machine operators, and advanced manufacturing specialists. 
+# On the displacement side, routine assembly and manual inspection jobs may have declined as firms adopted new production technologies, potentially reducing opportunities for lower skilled workers despite the increase in  manufacturing.
+# The fixed effect design cannot separate these channels because it estimates only the net effect on county-level manufacturing employment. Spatial spillovers may  overestimate treatment effect. For example, if workers migrated from untreated Pennsylvania counties to treated Ohio counties, 
+# treated employment would rise while control-region employment would fall, causing the DiD estimator to overstate true net job creation. 
+# Future research should break down employment by occupation code and account for cross-county commuting or migration flows to distinguish genuine job creation from geographic reallocation.
