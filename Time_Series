@@ -194,5 +194,117 @@ assert long_panel["employment"].isna().sum() == 0, "Nulls in employment"
 print("Clean sanity checks passed.")
 print(long_panel.to_string())
 
+# Stage 3 Analyze the data
+
+# GitHub Copilot Prompt:
+# Compute mean employment by year for TREATED==1 and TREATED==0 groups.
+# Plot both series with distinct markers, a vertical dotted line at
+# POLICY_YEAR, shaded pre/post regions, comma-formatted y-axis, legend,
+# and title. Save to trends_plot.png at 150 dpi.
+
+treated_trend = long_panel[long_panel["TREATED"] == 1].groupby("year")["employment"].mean()
+control_trend = long_panel[long_panel["TREATED"] == 0].groupby("year")["employment"].mean()
+all_years     = sorted(long_panel["year"].unique())
+
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.axvspan(all_years[0] - 0.4, POLICY_YEAR - 0.5, alpha=0.07, color="#4393c3")
+ax.axvspan(POLICY_YEAR - 0.5, all_years[-1] + 0.4, alpha=0.07, color="#d6604d")
+ax.plot(treated_trend.index, treated_trend.values, marker="o", color="#2166ac",
+        linewidth=2.3, markersize=7, label="Treated — Ohio Grant Counties")
+ax.plot(control_trend.index, control_trend.values, marker="s", color="#d6604d",
+        linewidth=2.3, markersize=7, linestyle="--",
+        label="Control — Pennsylvania (No Grant)")
+ax.axvline(x=POLICY_YEAR - 0.5, color="black", linestyle=":", linewidth=1.6,
+           label=f"Policy Start ({POLICY_YEAR})")
+ax.set_title("Manufacturing Employment Trends:\nOhio Grant Counties vs. Pennsylvania Benchmarks",
+             fontsize=13, fontweight="bold")
+ax.set_xlabel("Year"); ax.set_ylabel("Mean Employment (jobs)")
+ax.set_xticks(all_years)
+ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
+ax.legend(fontsize=9); ax.grid(axis="y", alpha=0.3)
+fig.tight_layout()
+fig.savefig("trends_plot.png", dpi=150)
+plt.close(fig)
+print("Saved trends_plot.png")
+
+# GitHub Copilot Prompt:
+# Filter the panel to pre-treatment years. Plot mean employment by year for
+# each group to visually check parallelism. Then run OLS:
+# employment ~ year_c * TREATED with HC3 standard errors on the pre-period
+# sample. An insignificant interaction term supports parallel trends.
+
+pre_panel = long_panel[long_panel["year"] < POLICY_YEAR].copy()
+pre_panel["year_c"] = pre_panel["year"] - pre_panel["year"].min()
+
+mean_pre = (
+    pre_panel.groupby(["year", "TREATED"])["employment"]
+    .mean()
+    .reset_index()
+)
+pivot_pre = mean_pre.pivot(index="year", columns="TREATED", values="employment")
+pivot_pre.columns = ["Control", "Treated"]
+
+fig, ax = plt.subplots(figsize=(10, 6))
+ax.plot(pivot_pre.index, pivot_pre["Treated"], marker="o", color="blue", label="Treated")
+ax.plot(pivot_pre.index, pivot_pre["Control"], marker="s", color="red", label="Control")
+ax.set_title("Pre-treatment Employment Trends")
+ax.set_xlabel("Year")
+ax.set_ylabel("Mean Employment")
+ax.yaxis.set_major_formatter(mticker.StrMethodFormatter("{x:,.0f}"))
+ax.legend()
+plt.savefig("pretrend_plot.png", dpi=150)
+plt.close()
+
+robust_results = smf.ols("employment ~ year_c * TREATED", data=pre_panel).fit(cov_type="HC3")
+
+print(robust_results.summary())
+print(
+    "Pre-treatment interaction coefficient:",
+    robust_results.params.get("year_c:TREATED", robust_results.params.get("TREATED:year_c")),
+    "p=",
+    robust_results.pvalues.get("year_c:TREATED", robust_results.pvalues.get("TREATED:year_c")),
+)
+# GitHub Copilot Prompt:
+# Run a placebo DiD using PLACEBO_YEAR as a fake policy date, restricted
+# to pre-treatment observations only. Create POST_PLACEBO and did_placebo
+# dummies, fit OLS with HC3 errors. An insignificant did_placebo coefficient
+# confirms no anticipatory effects.
+placebo_panel = pre_panel.copy()
+placebo_panel["POST_PLACEBO"] = (placebo_panel["year"] >= PLACEBO_YEAR).astype(int)
+placebo_panel["did_placebo"] = placebo_panel["TREATED"] * placebo_panel["POST_PLACEBO"]
+
+placebo_results = smf.ols(
+    "employment ~ TREATED + POST_PLACEBO + did_placebo",
+    data=placebo_panel,
+).fit(cov_type="HC3")
+
+print(placebo_results.summary())
+print(
+    "Placebo DiD coefficient:",
+    placebo_results.params.get("did_placebo"),
+    "p=",
+    placebo_results.pvalues.get("did_placebo"),
+)
+
+# GitHub Copilot Prompt:
+# Estimate a two-way fixed effects DiD on the full panel using the formula
+# employment ~ did + C(region) + C(year). C(region) absorbs time-invariant
+# county differences; C(year) absorbs common annual shocks. The coefficient
+# on did is the ATT. Use HC3 robust standard errors.
+did_model = smf.ols("employment ~ did + C(region) + C(year)",
+                    data=long_panel).fit(cov_type="HC3")
+print("\n[Two-Way FE DiD — Full Panel 2018–2025]")
+print(did_model.summary())
+
+coef  = did_model.params["did"]
+pval  = did_model.pvalues["did"]
+ci_lo = did_model.conf_int().loc["did", 0]
+ci_hi = did_model.conf_int().loc["did", 1]
+sig   = "***" if pval < 0.001 else "**" if pval < 0.01 else "*" if pval < 0.05 else "n.s."
+
+print(f"\n  DiD coefficient : {coef:,.1f} jobs")
+print(f"  p-value         : {pval:.4f}  {sig}")
+print(f"  95% CI          : [{ci_lo:,.1f}, {ci_hi:,.1f}]")
+
 
 
